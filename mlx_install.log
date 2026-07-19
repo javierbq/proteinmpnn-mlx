@@ -1,0 +1,8 @@
+Resolved 2 packages in 174ms
+Downloading mlx-metal (53.9MiB)
+ Downloading mlx-metal
+Prepared 2 packages in 764ms
+Installed 2 packages in 8ms
+ + mlx==0.32.0
+ + mlx-metal==0.32.0
+MLX_DONE 0

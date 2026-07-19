@@ -1,0 +1,14 @@
+Resolved 12 packages in 190ms
+Downloading coremltools (2.6MiB)
+ Downloading coremltools
+Prepared 8 packages in 132ms
+Installed 8 packages in 10ms
+ + attrs==26.1.0
+ + cattrs==26.1.0
+ + coremltools==9.0
+ + packaging==26.2
+ + protobuf==7.35.1
+ + pyaml==26.7.0
+ + pyyaml==6.0.3
+ + tqdm==4.69.0
+CT_DONE exit=0

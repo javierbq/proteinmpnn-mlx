@@ -1,0 +1,80 @@
+[
+  {
+    "name": "6MRR",
+    "L": 68,
+    "chains": 1,
+    "design_ms": 118.82400512695312,
+    "repack_ms": 343.1868553161621,
+    "total_ms": 462.01086044311523,
+    "design_conf": 0.42367857694625854,
+    "sc_atoms": 557,
+    "completeness": 1.0,
+    "nan_free": true,
+    "mean_sc_conf": 1.1823786497116089
+  },
+  {
+    "name": "5L33",
+    "L": 106,
+    "chains": 1,
+    "design_ms": 150.6969928741455,
+    "repack_ms": 309.68284606933594,
+    "total_ms": 460.37983894348145,
+    "design_conf": 0.4271829426288605,
+    "sc_atoms": 846,
+    "completeness": 1.0,
+    "nan_free": true,
+    "mean_sc_conf": 0.9025641679763794
+  },
+  {
+    "name": "4GYT",
+    "L": 354,
+    "chains": 2,
+    "design_ms": 530.6949615478516,
+    "repack_ms": 777.3988246917725,
+    "total_ms": 1308.093786239624,
+    "design_conf": 0.4537014961242676,
+    "sc_atoms": 2749,
+    "completeness": 1.0,
+    "nan_free": true,
+    "mean_sc_conf": 0.8996763825416565
+  },
+  {
+    "name": "3HTN",
+    "L": 425,
+    "chains": 3,
+    "design_ms": 570.7638263702393,
+    "repack_ms": 908.0870151519775,
+    "total_ms": 1478.8508415222168,
+    "design_conf": 0.5301071405410767,
+    "sc_atoms": 3329,
+    "completeness": 1.0,
+    "nan_free": true,
+    "mean_sc_conf": 1.2018746137619019
+  },
+  {
+    "name": "4YOW",
+    "L": 681,
+    "chains": 3,
+    "design_ms": 901.1101722717285,
+    "repack_ms": 1645.5917358398438,
+    "total_ms": 2546.7019081115723,
+    "design_conf": 0.5454851984977722,
+    "sc_atoms": 5327,
+    "completeness": 1.0,
+    "nan_free": true,
+    "mean_sc_conf": 1.1196410655975342
+  },
+  {
+    "name": "6EHB",
+    "L": 955,
+    "chains": 3,
+    "design_ms": 1345.081090927124,
+    "repack_ms": 2451.870918273926,
+    "total_ms": 3796.95200920105,
+    "design_conf": 0.5205822587013245,
+    "sc_atoms": 7222,
+    "completeness": 1.0,
+    "nan_free": true,
+    "mean_sc_conf": 1.0723613500595093
+  }
+]

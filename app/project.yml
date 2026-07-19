@@ -1,0 +1,107 @@
+name: MPNNBench
+
+options:
+  bundleIdPrefix: com.javiercv
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    # Simulator builds need no signing; keep signing automatic with no team so
+    # the committed project does not pin a developer identity. Device signing is
+    # configured in a later task.
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: VT99UQUQ89
+    SWIFT_VERSION: "6.0"
+
+packages:
+  mlx-swift:
+    url: https://github.com/ml-explore/mlx-swift
+    exactVersion: 0.31.6
+
+targets:
+  MPNNBench:
+    type: application
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: MPNNBench
+        excludes:
+          - "Resources/app_assets"
+      # Bundled model weights + fixtures live here as a folder reference (blue
+      # folder) so the directory structure is preserved verbatim in the app
+      # bundle. Currently just a .gitkeep placeholder.
+      - path: MPNNBench/Resources/app_assets
+        type: folder
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.javiercv.mpnnbench
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: "YES"
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
+        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+    dependencies:
+      - package: mlx-swift
+        product: MLX
+      - package: mlx-swift
+        product: MLXNN
+      - package: mlx-swift
+        product: MLXRandom
+      - package: mlx-swift
+        product: MLXFast
+
+  MPNNBenchTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: MPNNBenchTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.javiercv.mpnnbench.tests
+        GENERATE_INFOPLIST_FILE: "YES"
+    dependencies:
+      - target: MPNNBench
+      - package: mlx-swift
+        product: MLX
+
+  # macOS CLI that shares the app's Core/*.swift and validates the MLX transcription
+  # on real Metal (the iOS Simulator cannot run MLX compute — no private Metal heaps).
+  mpnncheck:
+    type: tool
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: MPNNBench/Core
+      - path: checktool
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+    dependencies:
+      - package: mlx-swift
+        product: MLX
+      - package: mlx-swift
+        product: MLXNN
+      - package: mlx-swift
+        product: MLXRandom
+      - package: mlx-swift
+        product: MLXFast
+
+schemes:
+  MPNNBench:
+    build:
+      targets:
+        MPNNBench: all
+        MPNNBenchTests: [test]
+    test:
+      targets:
+        - MPNNBenchTests
+      gatherCoverageData: false
+  mpnncheck:
+    build:
+      targets:
+        mpnncheck: all

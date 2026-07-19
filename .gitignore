@@ -1,0 +1,31 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# Xcode / build artifacts
+app/build/
+app/build_device/
+app/MPNNBench.xcodeproj/xcuserdata/
+app/MPNNBench.xcodeproj/project.xcworkspace/xcuserdata/
+DerivedData/
+
+# Large regenerable ML captures (rebuild via port/*.py)
+port/cap_*.npz
+port/packer_capture.npz
+
+# Core ML export artifacts (regenerable)
+*.mlpackage/
+*.mlmodelc/
+
+# Simulator scratch
+.sim_udid
+sim_test/sim_test
+
+# Large regenerable PyTorch oracle captures (rebuild via port/capture_design.py)
+port/design_capture_*.npz
+port/oracle_*.npz
+port/repack_ref.npz
