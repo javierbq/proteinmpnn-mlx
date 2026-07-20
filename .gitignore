@@ -29,3 +29,10 @@ sim_test/sim_test
 port/design_capture_*.npz
 port/oracle_*.npz
 port/repack_ref.npz
+
+# MPNNKit Swift package build artifacts (824 MB: mlx-swift checkout + build products)
+MPNNKit/.build/
+MPNNKit/.swiftpm/
+
+# Generated model bundle (reproducible via port/build_mpnnpack.py; weights already tracked in app_assets)
+dist/
