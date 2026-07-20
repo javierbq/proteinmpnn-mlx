@@ -101,28 +101,6 @@ private func orderMaskBackward(_ order: MLXArray, _ L: Int) -> MLXArray {
     return matmul(matmul(perm0.T, tri), perm0).expandedDimensions(axis: 0)   // [1,L,L]
 }
 
-// Compiled per-layer decoders. The single-position decLayer has fixed input shapes
-// ([1,1,128] node, [1,1,K,384] edge, [1,1] mask), so MLX traces + fuses its ~10 ops once
-// and every position/protein reuses the fused kernels — cutting per-step GPU dispatches.
-// Cached across decodeSequence calls (one design model per process). Weights are captured
-// as constants; the in-place gathers/scatters stay outside (functional updates would be O(L²)).
-private nonisolated(unsafe) var _compiledDecLayers: [(MLXArray, MLXArray, MLXArray) -> (MLXArray, MLXArray)]?
-
-private func compiledDecLayers(_ w: Weights, _ nDec: Int) -> [(MLXArray, MLXArray, MLXArray) -> (MLXArray, MLXArray)] {
-    if let c = _compiledDecLayers { return c }
-    let noCompile = ProcessInfo.processInfo.environment["MPNN_NOCOMPILE"] == "1"
-    let layers = (0 ..< nDec).map { l -> (MLXArray, MLXArray, MLXArray) -> (MLXArray, MLXArray) in
-        let p = "decoder_layers.\(l)"
-        let body: (MLXArray, MLXArray, MLXArray) -> (MLXArray, MLXArray) = { (hV, hE, mV) in
-            let o = decLayer(w, p, hV, hE, maskV: mV)
-            return (o, o)
-        }
-        return noCompile ? body : compile(body)
-    }
-    _compiledDecLayers = layers
-    return layers
-}
-
 // options for a decode step: greedy (RNG-free parity) or temperature sampling
 enum SampleMode { case greedy; case sample(temperature: Float) }
 
@@ -149,7 +127,6 @@ func decodeSequence(_ w: Weights, _ hV: MLXArray, _ hE: MLXArray, _ eIdx: MLXArr
     let hEXVfw = maskFw * hEXVenc
     let Ws = w["W_s.weight"]!
     let cm = mask * chainMask
-    let dl = compiledDecLayers(w, nDec)
 
     for t in orderInts {
         let eIdxT = eIdx[0..., t ..< (t + 1)]
@@ -162,7 +139,7 @@ func decodeSequence(_ w: Weights, _ hV: MLXArray, _ hE: MLXArray, _ eIdx: MLXArr
             let hESVdec = catNeighborsNodesG(hVStack[l], hESt, eIdxT)
             let hVt = hVStack[l][0..., t ..< (t + 1)]
             let hESVt = maskBwT * hESVdec + hEXVt
-            let out = dl[l](hVt, hESVt, maskT).0
+            let out = decLayer(w, "decoder_layers.\(l)", hVt, hESVt, maskV: maskT)
             hVStack[l + 1][0..., t ..< (t + 1)] = out
         }
         let hVtF = hVStack[nDec][0..., t ..< (t + 1)].reshaped([B, C])
