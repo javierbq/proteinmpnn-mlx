@@ -1,7 +1,5 @@
 # ProteinMPNN → iOS: export/validation harness
 
-Companion to `../ProteinMPNN-iOS-feasibility.md`. Proves ProteinMPNN's static
-scoring path exports to Core ML with numerical parity, before any Swift is written.
 
 ## Setup
 ```bash
