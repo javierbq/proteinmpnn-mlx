@@ -1,6 +1,8 @@
 # ProteinMPNN → iOS: export/validation harness
 
 
+> **Shipped:** the production build is a native MLX-Swift app — [`app/`](app/) (MPNNBench) + [`MPNNKit/`](MPNNKit/). This doc is the earlier Core ML de-risking phase; the former "Not yet done" items are complete (see **Done** below).
+
 ## Setup
 ```bash
 uv venv --python 3.12 .venv
@@ -86,7 +88,28 @@ NOTE: repack is the PyTorch reference; it is NOT yet Core ML-exported / natively
   (rigid-group frame math is rank 6). Repack geometry must be **native** (Swift/Metal)
   or **MLX** (no rank cap); it cannot be a pure Core ML export.
 
-## Not yet done
-- Full autoregressive sampling on-device (host-driven loop — see feasibility report §3/§5).
-- **On-device** (physical iPhone) latency profiling — the Simulator has no Metal (CPU fallback).
-- Native (MLX/Metal) reimplementation of the repacking OpenFold geometry vs `repack_ref.npz`.
+## Done (2026-07-20) — all shipped natively in MLX-Swift, running on-device
+
+The three items formerly listed here are complete. The project pivoted from the Core ML
+export path (above) to a native **MLX-Swift** reimplementation (feasibility §5 primary path),
+validated bit-close to PyTorch and run end-to-end on a physical iPhone.
+
+- **Full autoregressive sampling on-device (host-driven loop, §3/§5).** The decode loop is
+  [`app/MPNNBench/Core/DesignModel.swift`](app/MPNNBench/Core/DesignModel.swift)
+  (`decodeSequence`) — random decoding order + per-position single-step decode + greedy/temperature
+  sampling, driven in Swift on the iPhone GPU. Greedy top-1 = **100%** vs the PyTorch oracle
+  (6MRR/5L33/4GYT/3HTN). Python spec + parity: [`port/mlx_design.py`](port/mlx_design.py),
+  [`port/validate_mlx_design.py`](port/validate_mlx_design.py).
+- **On-device (physical iPhone) latency profiling.** Full 68→2120-residue sweep on an
+  **iPhone 15 Pro**: design **154 ms** (68 res) → **4.3 s** (2120), total 235 ms → 7.3 s,
+  MLX peak memory 144 MB → 2.9 GB; design top-1 100% + repack side-chain RMSD ~1e-6 Å for the
+  real proteins. Captured in [`device_results/`](device_results/). (Answers feasibility §11.1.)
+- **Native (MLX/Metal) reimplementation of the repacking OpenFold geometry.** The
+  torsion→rigid-frame→atom14 math is reimplemented rank-≤5 in MLX
+  ([`port/mlx_geometry.py`](port/mlx_geometry.py) → [`app/MPNNBench/Core/Geometry.swift`](app/MPNNBench/Core/Geometry.swift)),
+  plus the full multi-step denoising loop ([`port/mlx_repack_full.py`](port/mlx_repack_full.py) →
+  [`RepackLoop.swift`](app/MPNNBench/Core/RepackLoop.swift)). Validated **~1e-6 Å** vs the
+  PyTorch/OpenFold reference (`repack_ref.npz` and the bundled per-protein oracles).
+
+See [`docs/superpowers/specs`](docs/superpowers/specs) for the design doc and
+[`MPNNKit/README.md`](MPNNKit/README.md) for embedding the inference in another Swift app (e.g. RayMol).
