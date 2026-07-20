@@ -113,3 +113,17 @@ validated bit-close to PyTorch and run end-to-end on a physical iPhone.
 
 See [`docs/superpowers/specs`](docs/superpowers/specs) for the design doc and
 [`MPNNKit/README.md`](MPNNKit/README.md) for embedding the inference in another Swift app (e.g. RayMol).
+
+## License
+
+This project's code and packaging are released under the [MIT License](LICENSE) © 2026 Javier Castellanos.
+
+It builds on MIT-licensed upstream work, whose terms carry over to the redistributed portions:
+
+- **ProteinMPNN** and **LigandMPNN** (Justas Dauparas et al.) — the model architectures ported here,
+  and the bundled model weights under `app/MPNNBench/Resources/app_assets/weights/`. MIT.
+- **[mlx-swift](https://github.com/ml-explore/mlx-swift)** (ml-explore / Apple) — the on-device
+  array/Metal runtime. MIT.
+
+The bundled weights are redistributed under LigandMPNN's MIT license; please cite the original
+ProteinMPNN (Dauparas et al., *Science* 2022) and LigandMPNN work if you use this.
