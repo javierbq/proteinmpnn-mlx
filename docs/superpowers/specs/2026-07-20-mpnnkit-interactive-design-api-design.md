@@ -310,3 +310,36 @@ selection size.
   multi-chain) — reuse `appkit_sequence_panel._get_sequences()` ordering.
 - The undo model given "new object per result", the confidence-legend UI, and the hover-vs-tap
   trigger on touch platforms (iPad/iPhone have no pointer hover today).
+
+## 13. As-built corrections (post-implementation, 2026-07-21)
+
+Recorded after the branch `design/mpnnkit-interactive-design-api` completed (commits
+`75c4a40..a6f0220`, full suite 21/21, whole-branch review = merge-ready). These supersede the
+earlier text where noted.
+
+- **Scoring is deterministic; `seed` is inert (corrects §4/§6/§8/§9).** Implementation showed
+  `.leaveOneOut` is *not* truly order-independent under the multi-layer decoder (~0.49 logprob
+  variance across base orders), and Swift's MLX RNG cannot reproduce the PyTorch oracle's random
+  order. Resolved by pinning an **RNG-free canonical decode order** on BOTH the oracle and Swift:
+  `.conditional` uses the identity order `[0..L-1]` (position *i* conditioned on `0..i-1`);
+  `.leaveOneOut` uses `[all others in identity order, idx last]` per position; `.unconditional` is
+  genuinely order-free (strict zeroed backward mask). `score()` output does not depend on `seed`
+  (the parameter is retained for API symmetry only). Parity vs the oracle is ~1e-5 (Linf).
+- **`biasShapeMismatch` stays `(expected: Int, got: Int)` (corrects §7).** The tuple form shown in
+  §7 cannot compile under `MPNNInputError: Equatable` (Swift does not auto-synthesize Equatable
+  over tuple associated values). Outer-count vs inner-row (≠21) mismatches are distinguished by the
+  thrown payload instead. `omit` length is also validated to equal `L` (parity with `bias`).
+- **Oracle implementation (refines §8).** The loaded LigandMPNN class exposes only
+  `score`/`single_aa_score`, so `port/capture_score.py` reuses the model's `encode()` and
+  reimplements the three decodes mirroring the ProteinMPNN reference (`conditional` verified
+  byte-identical, Δ=0, to `score(use_sequence=True)`). The planned `port/validate_mlx_score.py`
+  MLX-mirror and the design/repack validator extensions were **not** added — the Swift package
+  tests validate directly against the exported `.safetensors` oracle (equivalent trust, simpler).
+- **Tests span multiple files (refines §8/§10):** `APIInputTests`, `DesignAPITests`,
+  `RepackAPITests`, `RunRewrapTests`, `ScoreAPITests`, `TestFixtures` — not a single
+  `MPNNModelTests.swift`. Repack parity uses the **designed** sequence (`design_top1`), matching how
+  the repack oracle was generated.
+- **`Result.logits` was not added** — `Result` is unchanged (spec §4 said "optionally").
+- **OUTSTANDING (acceptance §11):** the Tier-3 perf L-sweep (68/500/1500/2120) was **not** run
+  (deferred as optional; host disk pressure). The O(L²) encode caveat remains documented; recording
+  the perf numbers is a follow-up before the acceptance checklist is fully closed.
