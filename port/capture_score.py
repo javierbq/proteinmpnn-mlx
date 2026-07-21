@@ -136,14 +136,17 @@ def score_unconditional(model, fd):
     return torch.nn.functional.log_softmax(logits, dim=-1)
 
 
-def score_leaveoneout(model, fd, randn):
-    """Each position conditioned on ALL other native residues. Per idx, order_mask is
-    zero everywhere except idx (=1), so argsort places idx LAST in the decode order ->
-    idx sees every other position (all backward). Order-independent by construction.
-    Mirrors ProteinMPNN.conditional_probs(backbone_only=False) (protein_mpnn_utils.py:1292).
-    (backbone_only=False == leave-one-out; the LigandMPNN single_aa_score(use_sequence)
-    flag is inverted vs its help text, model_utils.py:502-507 -- this correctly-named path
-    avoids that trap.)"""
+def score_leaveoneout(model, fd):
+    """Each position conditioned on ALL other native residues. Per idx, the decode order
+    is a CANONICAL, RNG-FREE permutation: all other positions in identity order, then idx
+    LAST -> idx sees every other position (all backward). Mirrors
+    ProteinMPNN.conditional_probs(backbone_only=False) (protein_mpnn_utils.py:1292), but with
+    the reference's random per-idx order (argsort((order_mask+1e-4)*|randn|), idx-last)
+    replaced by the deterministic identity-of-others-then-idx-last permutation. That is
+    exactly what a stable argsort of a vector ~0 everywhere except 1.0 at idx yields, and it
+    is reproducible by the MLX/Swift side (which cannot replicate torch's RNG). backbone_only
+    is False == leave-one-out; using this correctly-named path also sidesteps the LigandMPNN
+    single_aa_score(use_sequence) flag-inversion trap (model_utils.py:502-507)."""
     S = fd["S"]
     mask = fd["mask"]
     chain_mask = fd["mask"] * fd["chain_mask"]
@@ -161,10 +164,12 @@ def score_leaveoneout(model, fd, randn):
     mask_1D = mask.view([B, L, 1, 1])
 
     for idx in idx_to_loop:
+        idx = int(idx)
         h_V = torch.clone(h_V_enc)
-        order_mask = torch.zeros(L, device=device).float()
-        order_mask[idx] = 1.0  # idx decoded LAST -> conditioned on all other residues
-        decoding_order = torch.argsort((order_mask[None,] + 0.0001) * torch.abs(randn))
+        # canonical RNG-free order: [0..idx-1, idx+1..L-1, idx] -> idx decoded LAST,
+        # conditioned on all other residues; others kept in identity order.
+        order = [p for p in range(L) if p != idx] + [idx]
+        decoding_order = torch.tensor(order, device=device, dtype=torch.long)[None, :]
 
         order_mask_backward = _order_mask_backward(decoding_order, L, device)
         mask_attend = torch.gather(order_mask_backward, 2, E_idx).unsqueeze(-1)
@@ -187,25 +192,23 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pdb", required=True)
     ap.add_argument("--id", required=True)
-    ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
     model = load_model()
     fd, L = build_feature_dict(args.pdb)
     S = fd["S"]  # [1,L] i64 native sequence
 
-    # fixed, deterministic decode order for `conditional` (chain_mask all ones -> the
-    # (chain_mask+1e-4) factor only scales, argsort unchanged; matches export_app_assets
-    # decoding_order_for(seed) and capture_design.py's order convention).
-    rng = np.random.RandomState(args.seed)
-    randn = torch.tensor(np.abs(rng.randn(1, L)).astype(np.float32))
-    chain_mask = fd["mask"] * fd["chain_mask"]
-    decoding_order = torch.argsort((chain_mask + 0.0001) * randn)  # [1,L]
+    # CANONICAL, RNG-FREE decode order for cross-language parity: the identity permutation
+    # [0, 1, ..., L-1]. Position i is conditioned on positions 0..i-1. This is reproducible
+    # bit-for-bit by the MLX/Swift side, which CANNOT replicate torch's RNG (so a seed-based
+    # random order would never match at 1e-3). leaveOneOut derives its per-idx order from the
+    # same identity base (others in identity order, idx last).
+    decoding_order = torch.arange(L, dtype=torch.long)[None, :]  # [1,L] identity
 
     with torch.no_grad():
         cond = score_conditional(model, fd, decoding_order)
         uncond = score_unconditional(model, fd)
-        loo = score_leaveoneout(model, fd, randn)
+        loo = score_leaveoneout(model, fd)
 
     out = {
         "native_seq":             mx.array(S[0].cpu().numpy().astype(np.int32)),
