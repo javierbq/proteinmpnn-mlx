@@ -78,6 +78,28 @@ public struct MPNNModel {
         return (0 ..< rows).map { i in Array(flat[(i * cols) ..< ((i + 1) * cols)]) }
     }
 
+    public struct DesignOptions {
+        /// Sampling temperature; 0 → deterministic greedy (argmax).
+        public var temperature: Float = 0.1
+        /// Seed for the decoding order (and sampling); nil → nondeterministic.
+        public var seed: UInt64? = nil
+        /// Positions (0-based) whose identity must be held to `nativeSequence`; required iff non-empty.
+        public var fixedPositions: Set<Int> = []
+        /// Alphabet indices (length L); required iff `fixedPositions` non-empty.
+        public var nativeSequence: [Int]? = nil
+        /// L × 21 additive logit bias applied at every decode step.
+        public var bias: [[Float]]? = nil
+        /// Per-position disallowed alphabet indices (length L).
+        public var omit: [Set<Int>]? = nil
+        public init() {}
+    }
+
+    public struct DesignResult {
+        public let sequence: String
+        public let indices: [Int]
+        public let logits: [[Float]]
+    }
+
     public let manifest: MPNNManifest
     private let designW: Weights
     private let packerW: Weights
@@ -138,5 +160,45 @@ public struct MPNNModel {
         }
         return Result(sequence: sequence, pdb: pdb,
                       designMs: Double(t1 - t0) / 1e6, repackMs: repackMs)
+    }
+
+    /// Design a sequence with optional fixed positions, per-position logit bias/omit, and returned logits.
+    public func design(_ residues: [Residue], options: DesignOptions = DesignOptions()) throws -> DesignResult {
+        guard !residues.isEmpty else { throw MPNNInputError.emptyResidues }
+        let L = residues.count
+        if !options.fixedPositions.isEmpty {
+            guard options.nativeSequence != nil else { throw MPNNInputError.nativeSequenceRequired }
+            for p in options.fixedPositions where p < 0 || p >= L { throw MPNNInputError.indexOutOfRange(p) }
+        }
+        if let nat = options.nativeSequence {
+            guard nat.count == L else { throw MPNNInputError.sequenceLengthMismatch(expected: L, got: nat.count) }
+            for a in nat where a < 0 || a >= 21 { throw MPNNInputError.indexOutOfRange(a) }
+        }
+        if let b = options.bias {
+            guard b.count == L && b.allSatisfy({ $0.count == 21 }) else {
+                throw MPNNInputError.biasShapeMismatch(expected: L, got: b.count)
+            }
+        }
+
+        if let s = options.seed { MLXRandom.seed(s) }
+        let (X, mask, Ridx, chainLabels) = modelInputs(residues)
+        var cmArr = [Float](repeating: 1, count: L)
+        for p in options.fixedPositions { cmArr[p] = 0 }
+        let chainMask = MLXArray(cmArr, [1, L])
+        let natInts = options.nativeSequence ?? [Int](repeating: 0, count: L)
+        let Snative = MLXArray(natInts.map { Int32($0) }, [1, L]).asType(.int32)
+        let logitBias = buildLogitBias(L: L, bias: options.bias, omit: options.omit)
+
+        let order = argSort(MLXRandom.normal([1, L]), axis: -1).asType(.int32)
+        let (E, eIdx) = featuresDesignE(designW, X, mask, Ridx, chainLabels, topK: 32)
+        let (hV, hE) = encodeDesign(designW, E, eIdx, mask)
+        let mode: SampleMode = options.temperature <= 0 ? .greedy : .sample(temperature: options.temperature)
+        let (S, logits, _) = decodeSequence(designW, hV, hE, eIdx, Snative, mask, chainMask, order,
+                                            mode: mode, logitBias: logitBias)
+        MLX.eval(S, logits)
+        let idx = S[0].asType(.int32).asArray(Int32.self).map { Int($0) }
+        return DesignResult(sequence: String(idx.map { Self.alphabet[$0] }),
+                            indices: idx,
+                            logits: toRows(logits[0], rows: L, cols: 21))
     }
 }
