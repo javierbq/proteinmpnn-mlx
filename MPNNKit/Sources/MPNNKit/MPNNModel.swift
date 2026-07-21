@@ -162,6 +162,42 @@ public struct MPNNModel {
                       designMs: Double(t1 - t0) / 1e6, repackMs: repackMs)
     }
 
+    // MARK: — Repack
+
+    public struct RepackResult {
+        public let pdb: String
+        public let atomConfidence: [[Float]]   // L × 14 packer log-prob per atom slot
+    }
+
+    public func repack(_ residues: [Residue], sequence: [Int]) throws -> RepackResult {
+        guard !residues.isEmpty else { throw MPNNInputError.emptyResidues }
+        let L = residues.count
+        guard sequence.count == L else { throw MPNNInputError.sequenceLengthMismatch(expected: L, got: sequence.count) }
+        for a in sequence where a < 0 || a >= 21 { throw MPNNInputError.indexOutOfRange(a) }
+        let core = repackCore(residues, indices: sequence)
+        MLX.eval(core.atom14, core.atom14Mask, core.bFactors)
+        let pdb = PDBWriter.write(backbone: core.X, atom14: core.atom14, atom14Mask: core.atom14Mask,
+                                  bFactors: core.bFactors, seqMPNN: sequence,
+                                  chainLabels: residues.map { $0.chain }, residueIdx: residues.map { $0.resSeq }, names: names)
+        return RepackResult(pdb: pdb, atomConfidence: toRows(core.bFactors[0], rows: L, cols: 14))
+    }
+
+    /// Shared repack: returns the raw MLXArrays so both repack() and run()'s PDB path use one code path.
+    func repackCore(_ residues: [Residue], indices: [Int])
+        -> (X: MLXArray, atom14: MLXArray, atom14Mask: MLXArray, bFactors: MLXArray) {
+        let (X, mask, Ridx, chainLabels) = modelInputs(residues)
+        let S = MLXArray(indices.map { Int32($0) }, [1, residues.count])
+        let r = repackFull(packerW, geom, Xbb: X, S: S, mask: mask, Ridx: Ridx, chainLabels: chainLabels)
+        return (X, r.atom14, r.atom14Mask, r.bFactors)
+    }
+
+    #if DEBUG
+    /// Test-only: expose the raw repacked atom14 for RMSD parity.
+    func repackAtom14(_ residues: [Residue], indices: [Int]) -> MLXArray {
+        let c = repackCore(residues, indices: indices); MLX.eval(c.atom14); return c.atom14
+    }
+    #endif
+
     /// Design a sequence with optional fixed positions, per-position logit bias/omit, and returned logits.
     public func design(_ residues: [Residue], options: DesignOptions = DesignOptions()) throws -> DesignResult {
         guard !residues.isEmpty else { throw MPNNInputError.emptyResidues }
