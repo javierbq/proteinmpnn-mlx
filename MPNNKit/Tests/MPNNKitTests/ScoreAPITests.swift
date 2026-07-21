@@ -27,7 +27,7 @@ final class ScoreAPITests: XCTestCase {
         }
     }
 
-    func testUnconditionalParityAndOrderIndependence() throws {
+    func testUnconditionalParityAndSeedInertness() throws {
         let id = "6MRR"
         try skipUnlessAssets(id)
         try XCTSkipUnless(FileManager.default.fileExists(atPath: mpnnOracleURL(id, "score").path), "score oracle missing")
@@ -35,7 +35,7 @@ final class ScoreAPITests: XCTestCase {
         let residues = try loadResidues(id)
         let a = try model.score(residues, mode: .unconditional, seed: 1)
         let b = try model.score(residues, mode: .unconditional, seed: 999)
-        XCTAssertEqual(a.logProbs.flatMap { $0 }, b.logProbs.flatMap { $0 }, "unconditional must be seed-independent")
+        XCTAssertEqual(a.logProbs.flatMap { $0 }, b.logProbs.flatMap { $0 }, "unconditional must be seed-inert (seed has no effect on score output)")
         assertClose(a.logProbs, try scoreOracle(id, "logprobs_unconditional"), 1e-3, "\(id) unconditional")
     }
 
@@ -56,6 +56,15 @@ final class ScoreAPITests: XCTestCase {
         let residues = try loadResidues("6MRR")
         XCTAssertThrowsError(try model.score(residues, sequence: nil, mode: .conditional)) { err in
             XCTAssertEqual(err as? MPNNModel.MPNNInputError, .sequenceRequired(.conditional))
+        }
+    }
+
+    func testLeaveOneOutRequiresSequence() throws {
+        try skipUnlessAssets("6MRR")
+        let model = try MPNNModel(packDirectory: mpnnPackURL())
+        let residues = try loadResidues("6MRR")
+        XCTAssertThrowsError(try model.score(residues, sequence: nil, mode: .leaveOneOut)) { err in
+            XCTAssertEqual(err as? MPNNModel.MPNNInputError, .sequenceRequired(.leaveOneOut))
         }
     }
 }

@@ -193,9 +193,13 @@ public struct MPNNModel {
             for a in nat where a < 0 || a >= 21 { throw MPNNInputError.indexOutOfRange(a) }
         }
         if let b = options.bias {
-            guard b.count == L && b.allSatisfy({ $0.count == 21 }) else {
-                throw MPNNInputError.biasShapeMismatch(expected: L, got: b.count)
+            guard b.count == L else { throw MPNNInputError.biasShapeMismatch(expected: L, got: b.count) }
+            if let bad = b.first(where: { $0.count != 21 }) {
+                throw MPNNInputError.biasShapeMismatch(expected: 21, got: bad.count)
             }
+        }
+        if let omit = options.omit {
+            guard omit.count == L else { throw MPNNInputError.sequenceLengthMismatch(expected: L, got: omit.count) }
         }
 
         if let s = options.seed { MLXRandom.seed(s) }

@@ -4,12 +4,12 @@ On-device LigandMPNN **protein sequence design + side-chain repack** as a self-c
 Swift package (mlx-swift / Metal). Runs on backbone coordinates the host already has in
 memory and returns a designed sequence + a repacked PDB. Extracted from the validated
 MPNNBench inference core; numerically faithful to PyTorch/OpenFold (design top-1 100%,
-repack side-chain RMSD ~1e-6 A).
+repack side-chain RMSD ~1e-6 Å).
 
 ## Install into an Xcode app (e.g. RayMol)
 
 MPNNKit is a normal SPM package — add it the same way RayMol already adds its local
-packages (*File > Add Package Dependencies... > Add Local...* -> this directory), or in a
+packages (*File ▸ Add Package Dependencies… ▸ Add Local…* → this directory), or in a
 `project.yml` / `Package.swift`:
 
 ```swift
