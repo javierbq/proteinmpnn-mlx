@@ -3,6 +3,41 @@ import MLX
 @testable import MPNNKit
 
 final class RepackAPITests: XCTestCase {
+    func testRepackRejectsEmptyResidues() throws {
+        try skipUnlessAssets("6MRR")
+        let model = try MPNNModel(packDirectory: mpnnPackURL())
+        XCTAssertThrowsError(try model.repack([], sequence: [])) { err in
+            XCTAssertEqual(err as? MPNNModel.MPNNInputError, .emptyResidues)
+        }
+    }
+
+    func testRepackRejectsLengthMismatch() throws {
+        try skipUnlessAssets("6MRR")
+        let model = try MPNNModel(packDirectory: mpnnPackURL())
+        let residues = try loadResidues("6MRR")
+        let L = residues.count
+        let shortSeq = Array(repeating: 0, count: L - 1)
+        XCTAssertThrowsError(try model.repack(residues, sequence: shortSeq)) { err in
+            if case .sequenceLengthMismatch = err as? MPNNModel.MPNNInputError {
+                // expected
+            } else {
+                XCTFail("expected .sequenceLengthMismatch, got \(err)")
+            }
+        }
+    }
+
+    func testRepackRejectsBadAAIndex() throws {
+        try skipUnlessAssets("6MRR")
+        let model = try MPNNModel(packDirectory: mpnnPackURL())
+        let residues = try loadResidues("6MRR")
+        let L = residues.count
+        var seq = Array(repeating: 0, count: L)
+        seq[0] = 21   // index 21 is out of range (valid: 0..<21)
+        XCTAssertThrowsError(try model.repack(residues, sequence: seq)) { err in
+            XCTAssertEqual(err as? MPNNModel.MPNNInputError, .indexOutOfRange(21))
+        }
+    }
+
     func testRepackMatchesOracleSideChains() throws {
         let id = "6MRR"
         try skipUnlessAssets(id)
