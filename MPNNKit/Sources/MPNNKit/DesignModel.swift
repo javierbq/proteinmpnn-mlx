@@ -92,7 +92,7 @@ func encodeDesign(_ w: Weights, _ E: MLXArray, _ eIdx: MLXArray, _ mask: MLXArra
 }
 
 // causal order-backward mask via perm^T @ tri @ perm (no einsum)
-private func orderMaskBackward(_ order: MLXArray, _ L: Int) -> MLXArray {
+func orderMaskBackward(_ order: MLXArray, _ L: Int) -> MLXArray {
     let perm = oneHot(order, L)                                          // [B,L,L]
     let ii = MLXArray(Int32(0) ..< Int32(L)).reshaped([L, 1])
     let jj = MLXArray(Int32(0) ..< Int32(L)).reshaped([1, L])
@@ -106,7 +106,8 @@ enum SampleMode { case greedy; case sample(temperature: Float) }
 
 func decodeSequence(_ w: Weights, _ hV: MLXArray, _ hE: MLXArray, _ eIdx: MLXArray,
                     _ Snative: MLXArray, _ mask: MLXArray, _ chainMask: MLXArray,
-                    _ order: MLXArray, mode: SampleMode, nDec: Int = 3)
+                    _ order: MLXArray, mode: SampleMode, nDec: Int = 3,
+                    logitBias: MLXArray? = nil)
     -> (S: MLXArray, logits: MLXArray, logProbs: MLXArray) {
     let B = hV.dim(0), L = hV.dim(1), C = hV.dim(2)
     let orderInts = order[0].asType(.int32).asArray(Int32.self).map { Int($0) }
@@ -116,11 +117,11 @@ func decodeSequence(_ w: Weights, _ hV: MLXArray, _ hE: MLXArray, _ eIdx: MLXArr
     let maskBw = mask1D * maskAttend
     let maskFw = mask1D * (1.0 - maskAttend)
 
-    var hS = MLXArray.zeros([B, L, C])
-    var S = MLXArray.zeros([B, L]).asType(.int32)
-    var logitsOut = MLXArray.zeros([B, L, 21])
-    var logpOut = MLXArray.zeros([B, L, 21])
-    var hVStack: [MLXArray] = [hV] + (0 ..< nDec).map { _ in MLXArray.zeros([B, L, C]) }
+    let hS = MLXArray.zeros([B, L, C])
+    let S = MLXArray.zeros([B, L]).asType(.int32)
+    let logitsOut = MLXArray.zeros([B, L, 21])
+    let logpOut = MLXArray.zeros([B, L, 21])
+    let hVStack: [MLXArray] = [hV] + (0 ..< nDec).map { _ in MLXArray.zeros([B, L, C]) }
 
     let hEXenc = catNeighborsNodesG(MLXArray.zeros([B, L, C]), hE, eIdx)
     let hEXVenc = catNeighborsNodesG(hV, hEXenc, eIdx)
@@ -143,7 +144,9 @@ func decodeSequence(_ w: Weights, _ hV: MLXArray, _ hE: MLXArray, _ eIdx: MLXArr
             hVStack[l + 1][0..., t ..< (t + 1)] = out
         }
         let hVtF = hVStack[nDec][0..., t ..< (t + 1)].reshaped([B, C])
-        let logits = linear(w, "W_out", hVtF)                            // [B,21]
+        let logits0 = linear(w, "W_out", hVtF)                            // [B,21]
+        let logits = logitBias == nil ? logits0
+                     : logits0 + logitBias![0..., t ..< (t + 1)].reshaped([B, 21])
         let logp = logits - logSumExp(logits, axis: -1, keepDims: true)
         var St: MLXArray
         switch mode {
@@ -165,4 +168,57 @@ func decodeSequence(_ w: Weights, _ hV: MLXArray, _ hE: MLXArray, _ eIdx: MLXArr
         MLX.eval([hS, S, logitsOut, logpOut] + hVStack)
     }
     return (S, logitsOut, logpOut)
+}
+
+// UNCONDITIONAL: structure-only per-position marginals. Mirrors ProteinMPNN.unconditional_probs
+// (order_mask_backward = 0 ⇒ decoder sees only the encoder forward features, never h_S).
+// One pass; order-independent.
+func scoreUnconditional(_ w: Weights, _ hV0: MLXArray, _ hE: MLXArray, _ eIdx: MLXArray,
+                        _ mask: MLXArray, nDec: Int = 3) -> MLXArray {
+    let B = hV0.dim(0), L = hV0.dim(1), C = hV0.dim(2)
+    let hEXenc = catNeighborsNodesG(MLXArray.zeros([B, L, C]), hE, eIdx)   // zeros in place of h_S
+    let hEXVenc = catNeighborsNodesG(hV0, hEXenc, eIdx)
+    let hEXVfw = mask.reshaped([B, L, 1, 1]) * hEXVenc                      // mask_fw = mask, mask_bw = 0
+    var hV = hV0
+    for l in 0 ..< nDec { hV = decLayer(w, "decoder_layers.\(l)", hV, hEXVfw, maskV: mask) }
+    let logits = linear(w, "W_out", hV)                                    // [B,L,21]
+    MLX.eval(logits)
+    return logits - logSumExp(logits, axis: -1, keepDims: true)
+}
+
+// LEAVE-ONE-OUT: p(AA_i | structure + all OTHER native residues). Mirrors
+// ProteinMPNN.conditional_probs(backbone_only=false): for each i, place i LAST in the decode
+// order so it attends to every other native residue in one pass. Order-independent; O(L) passes.
+// The per-idx decode order is built explicitly by concatenation as [0,…,idx-1, idx+1,…,L-1, idx]
+// (the canonical RNG-free order the Task 6 oracle pins), avoiding reliance on argSort tie-breaking.
+func scoreLeaveOneOut(_ w: Weights, _ hVenc: MLXArray, _ hE: MLXArray, _ eIdx: MLXArray,
+                      _ Snative: MLXArray, _ mask: MLXArray, nDec: Int = 3) -> MLXArray {
+    let B = hVenc.dim(0), L = hVenc.dim(1), C = hVenc.dim(2)
+    let Ws = w["W_s.weight"]!
+    let hS = take(Ws, Snative.asType(.int32), axis: 0)                     // [B,L,C]
+    let hES = catNeighborsNodesG(hS, hE, eIdx)
+    let hEXenc = catNeighborsNodesG(MLXArray.zeros([B, L, C]), hE, eIdx)
+    let hEXVencoder = catNeighborsNodesG(hVenc, hEXenc, eIdx)
+    let out = MLXArray.zeros([B, L, 21])           // filled in place per-idx (subscript-set, cf. logitsOut)
+    for idx in 0 ..< L {
+        // idx decoded LAST: [0,…,idx-1, idx+1,…,L-1, idx].
+        var orderInts = [Int32](); orderInts.reserveCapacity(L)
+        for j in 0 ..< L where j != idx { orderInts.append(Int32(j)) }
+        orderInts.append(Int32(idx))
+        let order = MLXArray(orderInts, [1, L]).asType(.int32)
+        let maskAttend = gatherEdges(orderMaskBackward(order, L).expandedDimensions(axis: -1), eIdx)  // [B,L,K,1]
+        let mask1D = mask.reshaped([B, L, 1, 1])
+        let maskBw = mask1D * maskAttend
+        let maskFw = mask1D * (1 - maskAttend)
+        var hV = hVenc
+        for l in 0 ..< nDec {
+            let hESV = maskBw * catNeighborsNodesG(hV, hES, eIdx) + maskFw * hEXVencoder
+            hV = decLayer(w, "decoder_layers.\(l)", hV, hESV, maskV: mask)
+        }
+        let logits = linear(w, "W_out", hV)
+        let logp = logits - logSumExp(logits, axis: -1, keepDims: true)
+        out[0..., idx ..< (idx + 1)] = logp[0..., idx ..< (idx + 1)]
+        MLX.eval(out)
+    }
+    return out
 }
