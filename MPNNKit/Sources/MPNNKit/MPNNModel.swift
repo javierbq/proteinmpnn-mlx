@@ -219,4 +219,53 @@ public struct MPNNModel {
                             indices: idx,
                             logits: toRows(logits[0], rows: L, cols: 21))
     }
+
+    // MARK: — Score
+
+    public struct ScoreResult {
+        public let logProbs: [[Float]]          // L × 21
+        public let currentAALogProb: [Float]?   // per-residue log-prob of the current AA (iff `sequence` given)
+    }
+
+    /// Per-position log-probabilities under one of three semantics:
+    /// - `.conditional`: teacher-forced autoregressive over the canonical identity decode order
+    ///   `[0, 1, …, L-1]` (position i conditioned on the native residues at 0..i-1). RNG-free —
+    ///   `seed` is accepted for API compatibility but does not affect the output.
+    /// - `.unconditional`: structure-only marginals (strict zeroed backward mask; order-free).
+    /// - `.leaveOneOut`: p(AA_i | structure + all OTHER native residues); each position decoded
+    ///   last in an otherwise-identity order (order-free by construction).
+    public func score(_ residues: [Residue], sequence: [Int]? = nil,
+                      mode: ScoreMode = .conditional, seed: UInt64? = 0) throws -> ScoreResult {
+        guard !residues.isEmpty else { throw MPNNInputError.emptyResidues }
+        let L = residues.count
+        if let seq = sequence {
+            guard seq.count == L else { throw MPNNInputError.sequenceLengthMismatch(expected: L, got: seq.count) }
+            for a in seq where a < 0 || a >= 21 { throw MPNNInputError.indexOutOfRange(a) }
+        }
+        if (mode == .conditional || mode == .leaveOneOut) && sequence == nil { throw MPNNInputError.sequenceRequired(mode) }
+
+        let (X, mask, Ridx, chainLabels) = modelInputs(residues)
+        let (E, eIdx) = featuresDesignE(designW, X, mask, Ridx, chainLabels, topK: 32)
+        let (hV, hE) = encodeDesign(designW, E, eIdx, mask)
+
+        let logp: MLXArray
+        switch mode {
+        case .conditional:
+            // Canonical RNG-free identity decode order [0, 1, …, L-1] (matches the Task 6 oracle).
+            let order = MLXArray((0 ..< L).map { Int32($0) }, [1, L]).asType(.int32)
+            let Snative = MLXArray(sequence!.map { Int32($0) }, [1, L]).asType(.int32)
+            // chainMask = zeros forces every position to Snative (teacher forcing); .greedy is RNG-free.
+            let (_, _, lp) = decodeSequence(designW, hV, hE, eIdx, Snative, mask, MLXArray.zeros([1, L]), order, mode: .greedy)
+            logp = lp
+        case .unconditional:
+            logp = scoreUnconditional(designW, hV, hE, eIdx, mask)
+        case .leaveOneOut:
+            let Snative = MLXArray(sequence!.map { Int32($0) }, [1, L]).asType(.int32)
+            logp = scoreLeaveOneOut(designW, hV, hE, eIdx, Snative, mask)
+        }
+        MLX.eval(logp)
+        let rows = toRows(logp[0], rows: L, cols: 21)
+        let cur = sequence.map { seq in (0 ..< L).map { rows[$0][seq[$0]] } }
+        return ScoreResult(logProbs: rows, currentAALogProb: cur)
+    }
 }
