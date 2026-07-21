@@ -300,7 +300,9 @@ selection size.
       repack for the designed sequence.
 - [ ] `run()` output is byte-identical (greedy + `seed=0`) after the rewrap.
 - [ ] No MLX type appears in any public signature.
-- [ ] Perf numbers recorded across L; the O(L²) encode caveat documented.
+- [x] Perf numbers recorded across L (`docs/perf/2026-07-21-mpnnkit-perf-lsweep.md`); encode measured
+      **~linear** (log-log slope ≈0.95–1.0) — the O(L²) all-pairs step is GPU-parallel and negligible
+      to L=2120. See §13.
 
 ## 12. Open questions carried into Phase 2 (RayMol), not blocking Phase 1
 
@@ -340,6 +342,15 @@ earlier text where noted.
   `MPNNModelTests.swift`. Repack parity uses the **designed** sequence (`design_top1`), matching how
   the repack oracle was generated.
 - **`Result.logits` was not added** — `Result` is unchanged (spec §4 said "optionally").
-- **OUTSTANDING (acceptance §11):** the Tier-3 perf L-sweep (68/500/1500/2120) was **not** run
-  (deferred as optional; host disk pressure). The O(L²) encode caveat remains documented; recording
-  the perf numbers is a follow-up before the acceptance checklist is fully closed.
+- **Tier-3 perf L-sweep — DONE (acceptance §11 closed).** Ran a 9-point sweep (L=68…2120) under
+  `-c release`; results in `docs/perf/2026-07-21-mpnnkit-perf-lsweep.md`. Key corrections to the
+  spec's cost model:
+  - **Encode is ~linear, not O(L²)** over the realistic range (slope ≈0.95–1.0, ~0.06 ms/residue) —
+    the `topK=32` cap makes encoder work O(L·K); the O(L²) all-pairs step is GPU-parallel and
+    negligible to L=2120. The O(L²) is a latent asymptote, not a practical cost here.
+  - **`fixedPositions` is NOT a decode-time optimisation** — `decodeSequence` iterates all L
+    positions regardless (fixed positions are *assigned*, not skipped), so a 10% redesign is only
+    ~4–18% faster than a full one. Wall-clock tracks **total L, not selection size** — even more
+    strongly than §9 stated. Phase-2 UX must reflect this.
+  - Budgets comfortably met (design ≈0.45 s @425 aa, ≈1.5 s @1590 aa). Peak GPU memory ~linear,
+    **~2.4 GB @ L=2120** — confirms the iOS jetsam risk / L-cap need from §9.

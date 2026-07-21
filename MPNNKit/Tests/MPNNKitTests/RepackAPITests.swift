@@ -56,6 +56,9 @@ final class RepackAPITests: XCTestCase {
         XCTAssertEqual(out.atomConfidence.first?.count, 14)
 
         // Side-chain (atom14 idx 4..13) RMSD vs oracle atom14, masked.
+        // repackAtom14 is a DEBUG-only test helper; in release builds the RMSD
+        // check is omitted (PDB validity + confidence shape already verified above).
+        #if DEBUG
         let ora = try loadArrays(url: mpnnOracleURL(id, "repack"))
         let refA14 = ora["atom14"]!.asType(.float32).expandedDimensions(axis: 0)    // [L,14,3] -> [1,L,14,3]
         let refMask = ora["atom14_mask"]!.asType(.float32).expandedDimensions(axis: 0) // [L,14] -> [1,L,14]
@@ -66,5 +69,6 @@ final class RepackAPITests: XCTestCase {
         let sq = (diff * diff * m)
         let rmsd = sqrt((sum(sq) / maximum(sum(m) * 3, MLXArray(1))).item(Float.self))
         XCTAssertLessThan(rmsd, 1e-2, "side-chain RMSD within 1e-2 Å of oracle")
+        #endif
     }
 }
