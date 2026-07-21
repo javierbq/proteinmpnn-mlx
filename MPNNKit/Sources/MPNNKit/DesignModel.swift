@@ -106,7 +106,8 @@ enum SampleMode { case greedy; case sample(temperature: Float) }
 
 func decodeSequence(_ w: Weights, _ hV: MLXArray, _ hE: MLXArray, _ eIdx: MLXArray,
                     _ Snative: MLXArray, _ mask: MLXArray, _ chainMask: MLXArray,
-                    _ order: MLXArray, mode: SampleMode, nDec: Int = 3)
+                    _ order: MLXArray, mode: SampleMode, nDec: Int = 3,
+                    logitBias: MLXArray? = nil)
     -> (S: MLXArray, logits: MLXArray, logProbs: MLXArray) {
     let B = hV.dim(0), L = hV.dim(1), C = hV.dim(2)
     let orderInts = order[0].asType(.int32).asArray(Int32.self).map { Int($0) }
@@ -116,11 +117,11 @@ func decodeSequence(_ w: Weights, _ hV: MLXArray, _ hE: MLXArray, _ eIdx: MLXArr
     let maskBw = mask1D * maskAttend
     let maskFw = mask1D * (1.0 - maskAttend)
 
-    var hS = MLXArray.zeros([B, L, C])
-    var S = MLXArray.zeros([B, L]).asType(.int32)
-    var logitsOut = MLXArray.zeros([B, L, 21])
-    var logpOut = MLXArray.zeros([B, L, 21])
-    var hVStack: [MLXArray] = [hV] + (0 ..< nDec).map { _ in MLXArray.zeros([B, L, C]) }
+    let hS = MLXArray.zeros([B, L, C])
+    let S = MLXArray.zeros([B, L]).asType(.int32)
+    let logitsOut = MLXArray.zeros([B, L, 21])
+    let logpOut = MLXArray.zeros([B, L, 21])
+    let hVStack: [MLXArray] = [hV] + (0 ..< nDec).map { _ in MLXArray.zeros([B, L, C]) }
 
     let hEXenc = catNeighborsNodesG(MLXArray.zeros([B, L, C]), hE, eIdx)
     let hEXVenc = catNeighborsNodesG(hV, hEXenc, eIdx)
@@ -143,7 +144,9 @@ func decodeSequence(_ w: Weights, _ hV: MLXArray, _ hE: MLXArray, _ eIdx: MLXArr
             hVStack[l + 1][0..., t ..< (t + 1)] = out
         }
         let hVtF = hVStack[nDec][0..., t ..< (t + 1)].reshaped([B, C])
-        let logits = linear(w, "W_out", hVtF)                            // [B,21]
+        let logits0 = linear(w, "W_out", hVtF)                            // [B,21]
+        let logits = logitBias == nil ? logits0
+                     : logits0 + logitBias![0..., t ..< (t + 1)].reshaped([B, 21])
         let logp = logits - logSumExp(logits, axis: -1, keepDims: true)
         var St: MLXArray
         switch mode {

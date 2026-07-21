@@ -40,7 +40,7 @@ public struct MPNNModel {
     /// Index → 1-letter AA (index 20 = 'X'). Column order of every [L,21] output.
     public static var alphabet: [Character] { ALPHABET }   // ALPHABET is DesignModel.swift:8
 
-    public enum ScoreMode: Equatable { case conditional, unconditional, leaveOneOut }
+    public enum ScoreMode: Equatable, Sendable { case conditional, unconditional, leaveOneOut }
 
     public enum MPNNInputError: Error, Equatable {
         case emptyResidues
@@ -83,6 +83,9 @@ public struct MPNNModel {
     private let packerW: Weights
     private let geom: RepackConstants
     private let names: AtomNames
+
+    var designWeights: Weights { designW }
+    var packerWeights: Weights { packerW }
 
     /// Load from an unzipped `.mpnnpack` directory (RayMol unzips on import).
     public init(packDirectory url: URL, verifyHashes: Bool = true) throws {
