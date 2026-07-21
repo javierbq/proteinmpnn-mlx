@@ -37,6 +37,47 @@ public struct MPNNModel {
         public let repackMs: Double
     }
 
+    /// Index → 1-letter AA (index 20 = 'X'). Column order of every [L,21] output.
+    public static var alphabet: [Character] { ALPHABET }   // ALPHABET is DesignModel.swift:8
+
+    public enum ScoreMode: Equatable { case conditional, unconditional, leaveOneOut }
+
+    public enum MPNNInputError: Error, Equatable {
+        case emptyResidues
+        case sequenceLengthMismatch(expected: Int, got: Int)
+        case sequenceRequired(ScoreMode)
+        case nativeSequenceRequired
+        case indexOutOfRange(Int)
+        case biasShapeMismatch(expected: Int, got: Int)
+    }
+
+    /// Build the model input tensors from residues (extracted verbatim from run(), MPNNModel.swift:62-70).
+    func modelInputs(_ residues: [Residue]) -> (X: MLXArray, mask: MLXArray, Ridx: MLXArray, chainLabels: MLXArray) {
+        let L = residues.count
+        var flat = [Float](); flat.reserveCapacity(L * 12)
+        for r in residues { for v in [r.n, r.ca, r.c, r.o] { flat.append(v.x); flat.append(v.y); flat.append(v.z) } }
+        let X = MLXArray(flat, [1, L, 4, 3])
+        let mask = MLXArray.ones([1, L])
+        let Ridx = MLXArray(residues.map { Float($0.resSeq) }, [1, L])
+        let chainLabels = MLXArray(residues.map { Float($0.chain) }, [1, L])
+        return (X, mask, Ridx, chainLabels)
+    }
+
+    /// [1,L,21] additive logit bias from an optional L×21 bias and per-position omit sets. nil if both nil.
+    func buildLogitBias(L: Int, bias: [[Float]]?, omit: [Set<Int>]?) -> MLXArray? {
+        guard bias != nil || omit != nil else { return nil }
+        var flat = [Float](repeating: 0, count: L * 21)
+        if let bias = bias { for i in 0 ..< L { for a in 0 ..< 21 { flat[i * 21 + a] += bias[i][a] } } }
+        if let omit = omit { for i in 0 ..< Swift.min(L, omit.count) { for a in omit[i] where a >= 0 && a < 21 { flat[i * 21 + a] += -1e9 } } }
+        return MLXArray(flat, [1, L, 21])
+    }
+
+    /// Row-major [rows,cols] MLXArray → [[Float]].
+    func toRows(_ a: MLXArray, rows: Int, cols: Int) -> [[Float]] {
+        let flat = a.asType(.float32).asArray(Float.self)
+        return (0 ..< rows).map { i in Array(flat[(i * cols) ..< ((i + 1) * cols)]) }
+    }
+
     public let manifest: MPNNManifest
     private let designW: Weights
     private let packerW: Weights
