@@ -229,6 +229,10 @@ public struct MPNNModel {
     public struct ScoreResult {
         public let logProbs: [[Float]]          // L × 21
         public let currentAALogProb: [Float]?   // per-residue log-prob of the current AA (iff `sequence` given)
+        public init(logProbs: [[Float]], currentAALogProb: [Float]?) {
+            self.logProbs = logProbs
+            self.currentAALogProb = currentAALogProb
+        }
     }
 
     /// Per-position log-probabilities under one of three semantics:
