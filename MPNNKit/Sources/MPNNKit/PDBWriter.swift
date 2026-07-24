@@ -31,14 +31,22 @@ enum PDBWriter {
         var lines: [String] = ["REMARK   \(remark)"]
         var serial = 1
         var prevChain = chainLabels.first ?? 0
+        // Backbone atom names for residues with no canonical AF2 table entry — MPNN
+        // index 20 ('X': unknown or modified residues such as MSE) maps to af2 == 20,
+        // which is past the 20-entry canonical tables. Such residues have no side chain
+        // to place, so they are emitted backbone-only as UNK rather than trapping on an
+        // out-of-range table lookup.
+        let unknownNames = ["N", "CA", "C", "O"]
         for i in 0 ..< L {
             if chainLabels[i] != prevChain { lines.append("TER"); prevChain = chainLabels[i] }
             let af2 = names.mpnn_to_af2[seqMPNN[i]]
-            let res3 = names.restypes3[af2]
-            let anames = names.atom14_names[af2]
+            let known = af2 >= 0 && af2 < names.restypes3.count && af2 < names.atom14_names.count
+            let res3 = known ? names.restypes3[af2] : "UNK"
+            let anames = known ? names.atom14_names[af2] : unknownNames
             let ch = chainLetter[chainLabels[i]] ?? "A"
             for j in 0 ..< 14 {
                 if am[i * 14 + j] < 0.5 { continue }
+                if j >= anames.count { continue }   // unknown residues expose backbone slots only
                 let name = anames[j]
                 if name.isEmpty { continue }
                 let x: Float, y: Float, z: Float
